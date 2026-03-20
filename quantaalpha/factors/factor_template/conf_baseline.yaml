@@ -99,7 +99,7 @@ task:
             segments:
                 train: [2016-01-01, 2019-12-31]
                 valid: [2020-01-01, 2020-12-31]
-                test: [2021-01-01, 2025-12-26]
+                test: [2021-01-01, 2021-12-31]
 
     record:
         - class: SignalRecord
