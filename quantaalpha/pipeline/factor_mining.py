@@ -43,19 +43,46 @@ def force_timeout():
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
+            # Prefer the timeout parameter
             seconds = LLM_SETTINGS.factor_mining_timeout
-            def handle_timeout(signum, frame):
-                logger.error(f"Process terminated: timeout exceeded ({seconds}s)")
-                sys.exit(1)
 
-            signal.signal(signal.SIGALRM, handle_timeout)
-            signal.alarm(seconds)
+            if sys.platform != "win32":
+                # Unix/Linux: Use SIGALRM signal
+                def handle_timeout(signum, frame):
+                    logger.error(f"Force terminating execution, exceeded {seconds} seconds")
+                    sys.exit(1)
 
-            try:
-                result = func(*args, **kwargs)
-            finally:
-                signal.alarm(0)
-            return result
+                signal.signal(signal.SIGALRM, handle_timeout)
+                signal.alarm(seconds)
+
+                try:
+                    result = func(*args, **kwargs)
+                finally:
+                    signal.alarm(0)
+                return result
+            else:
+                # Windows: Use daemon thread for timeout
+                result_container = [None]
+                exception_container = [None]
+
+                def target():
+                    try:
+                        result_container[0] = func(*args, **kwargs)
+                    except Exception as e:
+                        exception_container[0] = e
+
+                worker = threading.Thread(target=target, daemon=True)
+                worker.start()
+                worker.join(timeout=seconds)
+
+                if worker.is_alive():
+                    logger.error(f"Force terminating execution, exceeded {seconds} seconds")
+                    os._exit(1)
+
+                if exception_container[0] is not None:
+                    raise exception_container[0]
+
+                return result_container[0]
         return wrapper
     return decorator
 
