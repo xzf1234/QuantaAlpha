@@ -66,29 +66,43 @@
 
 ## 📊 Performance
 
-### 1. Factor Performance
+### 1. Zero-Shot Cross-Market Transfer
 
 <div align="center">
   <img src="docs/images/figure3.png" width="90%" alt="Zero-Shot Transfer" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
-  <p style="font-size: 12px; color: #666;">CSI 300 factors transferred to CSI 500/S&P 500</p>
+  <p style="font-size: 12px; color: #666;">Factors mined on CSI 300, transferred zero-shot to CSI 500 and S&P 500 (cumulative return). By the end of the test period, QuantaAlpha reaches ~40.3% cumulative excess return on CSI 500 and ~19.1% on S&P 500.</p>
 </div>
 
-### 2. Key Results
+### 2. Main Results on CSI 300
 
 <div align="center">
 
 | Dimension | Metric | Performance |
 | :---: | :---: | :---: |
-| **Predictive Power** | Information Coefficient (IC) | **0.1501** |
-| | Rank IC | **0.1465** |
-| **Strategy Return** | Annualized Excess Return (ARR) | **27.75%** |
-| | Max Drawdown (MDD) | **7.98%** |
-| | Calmar Ratio (CR) | **3.4774** |
+| **Predictive Power** | Information Coefficient (IC) | **0.0472** |
+| | Rank IC | **0.0459** |
+| **Strategy Performance** | Annualized Return (ARR) | **4.68%** |
+| | Information Ratio (IR) | **0.6453** |
+| | Max Drawdown (MDD) | **11.80%** |
+
+<p style="font-size: 12px; color: #666;">Best configuration (QuantaAlpha + GPT-5.2) on CSI 300, test period 2022–2025. Full comparison against classical machine-learning, deep-learning, factor-library, and LLM-agent baselines below.</p>
 
 </div>
 
 <div align="center">
-  <img src="docs/images/主实验.png" width="90%" alt="Main Experiment Results" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <img src="docs/images/主实验.png" width="95%" alt="Main Experiment Results" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+</div>
+
+### 3. Robustness & Mining Efficiency
+
+<div align="center">
+  <img src="docs/images/figure4.png" width="80%" alt="Annual IC and Rank IC" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <p style="font-size: 12px; color: #666;">Annual IC and Rank IC on CSI 300 (2022–2025): QuantaAlpha stays robust through the 2023 market regime shift, where baselines collapse.</p>
+</div>
+
+<div align="center">
+  <img src="docs/images/figure5.png" width="52%" alt="IC Evolution over Iterations" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <p style="font-size: 12px; color: #666;">IC evolution over the first five mining iterations: QuantaAlpha maintains the highest IC throughout.</p>
 </div>
 
 ---

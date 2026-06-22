@@ -54,29 +54,43 @@
 
 ## 📊 实验结果
 
-### 1. 因子表现
+### 1. 跨市场零样本迁移
 
 <div align="center">
   <img src="docs/images/figure3.png" width="90%" alt="零样本迁移" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
-  <p style="font-size: 12px; color: #666;">CSI 300 挖掘因子直接迁移至 CSI 500 / S&P 500</p>
+  <p style="font-size: 12px; color: #666;">CSI 300 上挖掘的因子零样本迁移至 CSI 500 与 S&P 500（累计收益）。到测试期末，QuantaAlpha 在 CSI 500 上累计超额收益约 40.3%，在 S&P 500 上约 19.1%。</p>
 </div>
 
-### 2. 核心指标
+### 2. CSI 300 主实验结果
 
 <div align="center">
 
 | 维度 | 指标 | 表现 |
 | :---: | :---: | :---: |
-| **预测效能** | 信息系数 (IC) | **0.1501** |
-| | Rank IC | **0.1465** |
-| **策略回报** | 年化超额收益 (ARR) | **27.75%** |
-| | 最大回撤 (MDD) | **7.98%** |
-| | 卡玛比率 (Calmar Ratio) | **3.4774** |
+| **预测效能** | 信息系数 (IC) | **0.0472** |
+| | Rank IC | **0.0459** |
+| **策略表现** | 年化收益 (ARR) | **4.68%** |
+| | 信息比率 (IR) | **0.6453** |
+| | 最大回撤 (MDD) | **11.80%** |
+
+<p style="font-size: 12px; color: #666;">最优配置（QuantaAlpha + GPT-5.2），CSI 300，测试期 2022–2025。下表为与传统机器学习、深度学习、因子库及 LLM 智能体基线的完整对比。</p>
 
 </div>
 
 <div align="center">
-  <img src="docs/images/主实验.png" width="90%" alt="主实验结果" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <img src="docs/images/主实验.png" width="95%" alt="主实验结果" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+</div>
+
+### 3. 鲁棒性与挖掘效率
+
+<div align="center">
+  <img src="docs/images/figure4.png" width="80%" alt="逐年 IC 与 Rank IC" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <p style="font-size: 12px; color: #666;">CSI 300 上逐年 IC 与 Rank IC（2022–2025）：在 2023 年市场风格切换、基线集体失效时，QuantaAlpha 仍保持稳健。</p>
+</div>
+
+<div align="center">
+  <img src="docs/images/figure5.png" width="52%" alt="IC 随迭代演化" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"/>
+  <p style="font-size: 12px; color: #666;">前五轮挖掘迭代中的 IC 演化：QuantaAlpha 全程保持最高 IC。</p>
 </div>
 
 ---
