@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { TimeSeriesData, RealtimeMetrics, LogEntry } from '@/types';
+import { stripAnsi } from '@/utils';
 import { formatNumber, formatPercent, formatDateTime } from '@/utils';
 import { TrendingUp, Activity, BarChart3, Target } from 'lucide-react';
 
@@ -14,10 +15,7 @@ interface LiveChartsProps {
 }
 
 export const LiveCharts: React.FC<LiveChartsProps> = ({
-  equityCurve,
-  drawdownCurve,
   metrics,
-  isRunning,
   logs,
 }) => {
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -170,7 +168,7 @@ export const LiveCharts: React.FC<LiveChartsProps> = ({
                         {formatDateTime(log.timestamp).split(' ')[1]}
                       </span>
                       <span className="shrink-0">{getLogIcon(log.level)}</span>
-                      <span className={getLogColor(log.level)}>{log.message}</span>
+                      <span className={getLogColor(log.level)}>{stripAnsi(log.message)}</span>
                     </div>
                   ))}
                   {/* Anchor for auto-scrolling */}

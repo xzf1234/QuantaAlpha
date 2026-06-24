@@ -32,7 +32,13 @@ fi
 # =============================================================================
 # Activate conda environment
 # =============================================================================
-eval "$(conda shell.bash hook)" 2>/dev/null
+if [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/anaconda3/etc/profile.d/conda.sh"
+else
+    eval "$(conda shell.bash hook)" 2>/dev/null
+fi
 conda activate "${CONDA_ENV_NAME:-quantaalpha}" 2>/dev/null
 
 if [ $? -ne 0 ]; then

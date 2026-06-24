@@ -33,7 +33,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { formatDate, formatNumber, formatPercent } from '@/utils';
+import { formatDate, formatPercent } from '@/utils';
 
 // ... (existing MetricCard component)
 
@@ -114,18 +114,6 @@ const CumulativeReturnChart: React.FC<{ data: { date: string; value: number }[] 
 import { useTaskContext } from '@/context/TaskContext';
 
 // ========================== Component ==========================
-
-// Helper component for metrics
-const MetricCard = ({ label, value, unit = '' }: { label: string; value?: number; unit?: string }) => (
-  <div className="bg-secondary/30 rounded-lg p-3">
-    <div className="text-xs text-muted-foreground mb-1">{label}</div>
-    <div className="text-lg font-bold font-mono">
-      {typeof value === 'number' 
-        ? `${formatNumber(value, 4)}${unit}`
-        : '--'}
-    </div>
-  </div>
-);
 
 export const BacktestPage: React.FC = () => {
   const {

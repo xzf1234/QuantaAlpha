@@ -435,15 +435,23 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         # Detect duplicated sub-expressions
         flag = False
         expression_duplication_prompt = None
+        max_json_retries = 10
+        json_retry_count = 0
         while True:
             if flag:
                 break
-                
+
             resp = APIBackend().build_messages_and_create_chat_completion(user_prompt, system_prompt, json_mode=json_flag)
             try:
                 response_dict = robust_json_parse(resp)
             except json.JSONDecodeError as e:
-                logger.warning(f"JSON parse failed: {e}, retrying...")
+                json_retry_count += 1
+                logger.warning(f"JSON parse failed ({json_retry_count}/{max_json_retries}): {e}, retrying...")
+                if json_retry_count >= max_json_retries:
+                    logger.error(f"JSON parse failed after {max_json_retries} retries, skipping this proposal round.")
+                    exp = QlibFactorExperiment(tasks=[])
+                    exp.based_experiments = [QlibFactorExperiment(sub_tasks=[])] + [t[1] for t in trace.hist if t[2]]
+                    return exp
                 continue
             proposed_names = []
             proposed_exprs = []

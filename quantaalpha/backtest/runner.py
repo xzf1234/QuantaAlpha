@@ -216,51 +216,128 @@ class BacktestRunner:
         label_expr = dataset_config['label']
         label_df = self._compute_label(label_expr)
         
-        all_feature_dfs = [computed_factors]
+        def _standardize_factor_df(df, name):
+            """Ensure a single factor DataFrame has (datetime_Timestamp, instrument) MultiIndex.
+            Must be called on individual DataFrames BEFORE pd.concat so each level is still
+            homogeneous (no mixed datetime-string + stock-code values in the same level)."""
+            if not isinstance(df.index, pd.MultiIndex) or len(df.index.levels) != 2:
+                return df
+            l0_vals = df.index.get_level_values(0)
+            l1_vals = df.index.get_level_values(1)
+            l0_is_dt = pd.api.types.is_datetime64_any_dtype(l0_vals)
+            l1_is_dt = pd.api.types.is_datetime64_any_dtype(l1_vals)
+            # If both are object dtype, detect which is datetime by sampling
+            if not l0_is_dt and not l1_is_dt:
+                for _v in l0_vals:
+                    if _v is not None and _v == _v:
+                        try:
+                            pd.Timestamp(_v)
+                            l0_is_dt = True
+                        except Exception:
+                            pass
+                        break
+                if not l0_is_dt:
+                    for _v in l1_vals:
+                        if _v is not None and _v == _v:
+                            try:
+                                pd.Timestamp(_v)
+                                l1_is_dt = True
+                            except Exception:
+                                pass
+                            break
+            # Swap so that datetime is always level 0
+            if l1_is_dt and not l0_is_dt:
+                df = df.swaplevel(0, 1).sort_index()
+                logger.debug(f"  {name}: swapped to (datetime, instrument)")
+                l0_is_dt = True
+            # Convert level 0 (datetime) from string to Timestamp if needed
+            if l0_is_dt and not pd.api.types.is_datetime64_any_dtype(df.index.get_level_values(0)):
+                try:
+                    df.index = df.index.set_levels(
+                        pd.to_datetime(df.index.levels[0]), level=0
+                    )
+                    logger.debug(f"  {name}: datetime level converted to Timestamp")
+                except Exception as _e:
+                    logger.warning(f"  {name}: datetime Timestamp conversion failed: {_e}")
+            df.index.names = ['datetime', 'instrument']
+            return df
+
+        all_feature_dfs = [_standardize_factor_df(computed_factors, "computed_factors")]
         if factor_expressions:
             logger.debug(f"  Loading {len(factor_expressions)} Qlib-compatible factors")
             qlib_factors = self._load_qlib_factors(factor_expressions)
             if qlib_factors is not None and not qlib_factors.empty:
-                all_feature_dfs.append(qlib_factors)
-        
+                all_feature_dfs.append(_standardize_factor_df(qlib_factors, "qlib_factors"))
+
         features_df = pd.concat(all_feature_dfs, axis=1)
         features_df = features_df.loc[:, ~features_df.columns.duplicated()]
         logger.debug(f"  Total factor count: {len(features_df.columns)}")
 
         def _normalize_multiindex(df, df_name):
-            """Ensure MultiIndex has standard (datetime, instrument) level names."""
+            """Ensure MultiIndex has (datetime, instrument) level names and correct dtypes."""
             if not isinstance(df.index, pd.MultiIndex):
                 logger.warning(f"  {df_name} index is not MultiIndex: {type(df.index)}")
                 return df
-            
+
             names = list(df.index.names)
             logger.debug(f"  {df_name} index levels: {names}, "
                         f"dtypes: {[str(df.index.get_level_values(i).dtype) for i in range(len(names))]}, "
                         f"len: {len(df)}")
-            
+
             new_names = list(names)
+            # Track which levels are datetime but stored as strings → need Timestamp conversion
+            string_datetime_levels = []
+
             for i, name in enumerate(names):
                 level_vals = df.index.get_level_values(i)
-                if name == 'datetime' or name == 'date':
+                if name in ('datetime', 'date'):
                     new_names[i] = 'datetime'
-                elif name == 'instrument' or name == 'stock':
+                    if not pd.api.types.is_datetime64_any_dtype(level_vals):
+                        string_datetime_levels.append(i)
+                elif name in ('instrument', 'stock'):
                     new_names[i] = 'instrument'
                 elif name is None:
                     # Infer from dtype
                     if pd.api.types.is_datetime64_any_dtype(level_vals):
                         new_names[i] = 'datetime'
                     elif level_vals.dtype == object or pd.api.types.is_string_dtype(level_vals):
-                        new_names[i] = 'instrument'
-            
+                        # Detect datetime string levels (e.g. '2025-08-21 23:59:59')
+                        # by trying to parse a sample value; stock codes will fail parsing
+                        _is_dt = False
+                        for _v in level_vals:
+                            if _v is not None and _v == _v:  # skip None/NaN
+                                try:
+                                    pd.Timestamp(_v)
+                                    _is_dt = True
+                                except Exception:
+                                    pass
+                                break
+                        new_names[i] = 'datetime' if _is_dt else 'instrument'
+                        if _is_dt:
+                            string_datetime_levels.append(i)
+
             if new_names != names:
                 logger.debug(f"  {df_name} index renamed: {names} -> {new_names}")
                 df.index = df.index.set_names(new_names)
+
+            # Convert any string-valued datetime levels to pd.Timestamp unconditionally,
+            # so that downstream qlib slicing (which uses Timestamp bounds) never fails.
+            for i in string_datetime_levels:
+                try:
+                    level_vals = df.index.get_level_values(i)
+                    df.index = df.index.set_levels(
+                        pd.to_datetime(level_vals.unique()), level=new_names[i]
+                    )
+                    logger.debug(f"  {df_name} level '{new_names[i]}' converted to Timestamp")
+                except Exception as _e:
+                    logger.warning(f"  {df_name} failed to convert level '{new_names[i]}' to Timestamp: {_e}")
+
             actual_names = list(df.index.names)
             if len(actual_names) == 2 and actual_names == ['instrument', 'datetime']:
                 df = df.swaplevel()
                 df = df.sort_index()
                 logger.debug(f"  {df_name} index swapped to (datetime, instrument)")
-            
+
             return df
         
         features_df = _normalize_multiindex(features_df, "features")
@@ -317,7 +394,17 @@ class BacktestRunner:
             
             merged = merged.set_index([dt_col, inst_col])
             merged.index.names = ['datetime', 'instrument']
-            
+            # Ensure the datetime level is Timestamp, not raw strings
+            if not pd.api.types.is_datetime64_any_dtype(merged.index.get_level_values('datetime')):
+                try:
+                    merged.index = merged.index.set_levels(
+                        pd.to_datetime(merged.index.get_level_values('datetime').unique()),
+                        level='datetime'
+                    )
+                    logger.debug("  merge path: datetime level converted to Timestamp")
+                except Exception as _e:
+                    logger.warning(f"  merge path: datetime Timestamp conversion failed: {_e}")
+
             feature_cols = [c for c in features_df.columns if c in merged.columns]
             label_cols = [c for c in label_df.columns if c in merged.columns]
             features_df = merged[feature_cols]

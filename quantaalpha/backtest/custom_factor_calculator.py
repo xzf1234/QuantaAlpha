@@ -11,6 +11,7 @@ Features:
 """
 
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -35,6 +36,34 @@ os.environ.setdefault('JOBLIB_START_METHOD', 'loky')
 logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_DIR = Path(os.environ.get("FACTOR_CACHE_DIR", "data/results/factor_cache"))
+_EXPR_PARSER_MODULE = None
+_FUNCTION_LIB_MODULE = None
+
+
+def _load_coder_file_module(module_name: str):
+    """Load a factor-coder submodule without triggering coder package imports."""
+    module_path = project_root / "quantaalpha" / "factors" / "coder" / f"{module_name}.py"
+    spec = importlib.util.spec_from_file_location(
+        f"_quantaalpha_factor_coder_{module_name}", module_path
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load factor coder module: {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _get_expression_tools():
+    global _EXPR_PARSER_MODULE, _FUNCTION_LIB_MODULE
+    if _EXPR_PARSER_MODULE is None:
+        _EXPR_PARSER_MODULE = _load_coder_file_module("expr_parser")
+    if _FUNCTION_LIB_MODULE is None:
+        _FUNCTION_LIB_MODULE = _load_coder_file_module("function_lib")
+    return (
+        _EXPR_PARSER_MODULE.parse_expression,
+        _EXPR_PARSER_MODULE.parse_symbol,
+        _FUNCTION_LIB_MODULE,
+    )
 
 
 class CustomFactorCalculator:
@@ -124,6 +153,8 @@ class CustomFactorCalculator:
             return None
         
         h5_file = Path(result_h5_path)
+        if not h5_file.is_absolute() and not h5_file.exists():
+            h5_file = project_root / h5_file
         if not h5_file.exists():
             logger.debug(f"Cache file not found: {result_h5_path}")
             return None
@@ -201,10 +232,7 @@ class CustomFactorCalculator:
             import sys as _sys
             from joblib import parallel_backend
             
-            from quantaalpha.factors.coder.expr_parser import (
-                parse_expression, parse_symbol
-            )
-            import quantaalpha.factors.coder.function_lib as func_lib
+            parse_expression, parse_symbol, func_lib = _get_expression_tools()
             
             df = self.data_df.copy()
             
@@ -347,7 +375,7 @@ class CustomFactorCalculator:
                         cache_location_hit_count += 1
                         results[factor_name] = result
                         success_count += 1
-                        print(f"  [{i+1}/{total}] ✓ H5 cache: {factor_name}")
+                        print(f"  [{i+1}/{total}] [OK] H5 cache: {factor_name}")
                         continue
             
             if use_cache:
@@ -356,11 +384,11 @@ class CustomFactorCalculator:
                     cache_hit_count += 1
                     results[factor_name] = result
                     success_count += 1
-                    print(f"  [{i+1}/{total}] ✓ MD5 cache: {factor_name}")
+                    print(f"  [{i+1}/{total}] [OK] MD5 cache: {factor_name}")
                     continue
             
             need_compute_factors.append((i, factor_info))
-            print(f"  [{i+1}/{total}] ⏳ Pending: {factor_name}")
+            print(f"  [{i+1}/{total}] [PENDING] {factor_name}")
         
         # Pass 2: compute uncached factors
         if need_compute_factors:
@@ -407,7 +435,7 @@ class CustomFactorCalculator:
                         
                     except _FactorTimeout:
                         elapsed = _time.time() - t0
-                        print(f" ✗ Timeout ({elapsed:.1f}s)")
+                        print(f" [TIMEOUT] ({elapsed:.1f}s)")
                         fail_count += 1
                         failed_names.append(f"{factor_name}(timeout)")
                         try:
@@ -419,7 +447,7 @@ class CustomFactorCalculator:
                         continue
                     except Exception as e:
                         elapsed = _time.time() - t0
-                        print(f" ✗ Error ({elapsed:.1f}s): {str(e)[:80]}")
+                        print(f" [ERR] ({elapsed:.1f}s): {str(e)[:80]}")
                         fail_count += 1
                         failed_names.append(factor_name)
                         continue
@@ -431,17 +459,17 @@ class CustomFactorCalculator:
                             results[factor_name] = result
                             success_count += 1
                             compute_count += 1
-                            print(f" ✓ ({elapsed:.1f}s)")
+                            print(f" [OK] ({elapsed:.1f}s)")
                             if use_cache:
                                 self._save_to_cache(factor_expr, result)
                         else:
                             fail_count += 1
                             failed_names.append(factor_name)
-                            print(f" ✗ All NaN ({elapsed:.1f}s)")
+                            print(f" [ERR] All NaN ({elapsed:.1f}s)")
                     else:
                         fail_count += 1
                         failed_names.append(factor_name)
-                        print(f" ✗ Failed ({elapsed:.1f}s)")
+                        print(f" [ERR] Failed ({elapsed:.1f}s)")
         
         print(f"Factor load done: success {success_count}, failed {fail_count} | "
               f"H5 cache {cache_location_hit_count}, MD5 cache {cache_hit_count}, computed {compute_count}")
@@ -451,14 +479,12 @@ class CustomFactorCalculator:
         if not results:
             return pd.DataFrame()
         
-        # Align results to common index
+        # Validate results independently. Different factor sources may cover
+        # different universes; downstream dataset creation aligns them to the
+        # label/market index.
         aligned_results = {}
-        reference_index = None
-        
         for name, series in results.items():
-            if reference_index is None:
-                reference_index = series.index
-            validated = self._validate_and_align_result(series, name, reference_index)
+            validated = self._validate_and_align_result(series, name, reference_index=None)
             if validated is not None:
                 aligned_results[name] = validated
         
@@ -519,10 +545,7 @@ class CustomFactorDataLoader:
         
     def to_qlib_format(self, data_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Convert to Qlib data format."""
-        from quantaalpha.factors.coder.expr_parser import (
-            parse_expression, parse_symbol
-        )
-        import quantaalpha.factors.coder.function_lib as func_lib
+        parse_expression, parse_symbol, func_lib = _get_expression_tools()
         
         df = data_df.copy()
         
@@ -576,19 +599,53 @@ def get_qlib_stock_data(config: Dict) -> pd.DataFrame:
     
     stock_list = D.instruments(market)
     
-    fields = ['$open', '$high', '$low', '$close', '$volume', '$vwap']
-    df = D.features(
-        stock_list,
-        fields,
-        start_time=start_time,
-        end_time=end_time,
-        freq='day'
+    base_fields = data_config.get(
+        'fields',
+        ['$open', '$high', '$low', '$close', '$volume', '$vwap'],
     )
-    
-    df.columns = fields
-    
-    logger.debug(f"Loaded stock data: {len(df)} rows")
-    
+    extra_fields = data_config.get(
+        'extra_fields',
+        ['$amount', '$change', '$factor', '$adjclose'],
+    )
+    fields = list(dict.fromkeys([*base_fields, *extra_fields]))
+
+    try:
+        df = D.features(
+            stock_list,
+            fields,
+            start_time=start_time,
+            end_time=end_time,
+            freq='day'
+        )
+        df.columns = fields
+    except Exception as e:
+        logger.warning(f"Load extended Qlib fields failed, fallback to base fields: {e}")
+        fields = list(dict.fromkeys(base_fields))
+        df = D.features(
+            stock_list,
+            fields,
+            start_time=start_time,
+            end_time=end_time,
+            freq='day'
+        )
+        df.columns = fields
+
+    external_config = config.get('external_data', {})
+    try:
+        from quantaalpha.data.astock_structured import merge_structured_data
+
+        df = merge_structured_data(
+            df,
+            enabled=external_config.get('enabled', True),
+            data_dir=external_config.get('data_dir', 'data/external/astock_structured'),
+            field_map=external_config.get('field_map'),
+            ffill_limit=external_config.get('ffill_limit'),
+        )
+    except Exception as e:
+        logger.warning(f"Merge structured external data failed: {e}")
+
+    logger.debug(f"Loaded stock data: {len(df)} rows, cols: {list(df.columns)}")
+
     return df
 
 

@@ -127,3 +127,4 @@ release-notes.md
 
 # ---- Sphinx documentation ----
 docs/_build/
+*.zip

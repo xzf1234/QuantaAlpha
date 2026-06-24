@@ -191,8 +191,13 @@ def cache_with_pickle(hash_func: Callable, post_process_func: Callable | None = 
             else:
                 result = func(*args, **kwargs)
 
-            with cache_file.open("wb") as f:
-                pickle.dump(result, f)
+            # Only cache successful results (tuples where second element is not None)
+            should_store = True
+            if isinstance(result, tuple) and len(result) >= 2 and result[1] is None:
+                should_store = False
+            if should_store:
+                with cache_file.open("wb") as f:
+                    pickle.dump(result, f)
 
             return result
 

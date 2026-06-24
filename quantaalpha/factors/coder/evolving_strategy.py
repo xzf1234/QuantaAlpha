@@ -338,16 +338,22 @@ class FactorParsingStrategy(MultiProcessEvolvingStrategy):
                             user_prompt=user_prompt, system_prompt=system_prompt, json_mode=True, reasoning_flag=False
                         )
                     )["expr"]
-                    
+
                     # Render code template with new expression
                     rendered_code = code_template.render(
-                        expression=expr, 
-                        factor_name=target_task.factor_name 
+                        expression=expr,
+                        factor_name=target_task.factor_name
                     )
                     return rendered_code
-                    
-                except json.decoder.JSONDecodeError:
+
+                except (json.decoder.JSONDecodeError, KeyError):
                     pass  # JSON parse failed, retry
+
+            # Fallback: use original expression from task if all retries failed
+            return code_template.render(
+                expression=target_task.factor_expression,
+                factor_name=target_task.factor_name,
+            )
     
     def assign_code_list_to_evo(self, code_list, evo):
         for index in range(len(evo.sub_tasks)):

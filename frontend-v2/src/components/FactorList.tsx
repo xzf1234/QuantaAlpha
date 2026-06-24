@@ -1,14 +1,8 @@
 import React from 'react';
-import {
-  AreaChart,
-  Area,
-  ResponsiveContainer,
-} from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/HoverCard";
 import { RealtimeMetrics } from '@/types';
 import { formatNumber, formatPercent } from '@/utils';
-import { TrendingUp } from 'lucide-react';
 
 interface FactorListProps {
   metrics: RealtimeMetrics | null;

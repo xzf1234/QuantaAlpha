@@ -76,6 +76,9 @@ class FactorLibraryManager:
         sub_tasks = getattr(experiment, "sub_tasks", []) or []
         sub_workspaces = getattr(experiment, "sub_workspace_list", []) or []
 
+        # Load return data once for the whole experiment (shared across factors)
+        _shared_return_series = FactorLibraryManager._load_return_series()
+
         for idx, task in enumerate(sub_tasks):
             factor_name = getattr(task, "factor_name", getattr(task, "name", f"factor_{idx}"))
             factor_expr = getattr(task, "factor_expression", "")
@@ -88,8 +91,10 @@ class FactorLibraryManager:
 
             code = ""
             cache_location = {}
+            ws_for_ic = None
             if idx < len(sub_workspaces):
                 ws = sub_workspaces[idx]
+                ws_for_ic = ws
                 code_dict = getattr(ws, "code_dict", {})
                 code = "\n".join(
                     f"File: {fname}\n\n{content}"
@@ -116,6 +121,18 @@ class FactorLibraryManager:
                             f"result.h5 missing for {factor_name} ({h5_file}), will recompute from expression in backtest"
                         )
 
+            # Build per-factor backtest results: start from combined experiment-level
+            # metrics, then override IC metrics with individually computed values so
+            # each factor shows distinct performance numbers rather than the same
+            # combined-portfolio result.
+            factor_backtest_results = dict(backtest_results)
+            if ws_for_ic is not None:
+                per_ic = self._compute_per_factor_ic_metrics(
+                    ws_for_ic, factor_name, _shared_return_series
+                )
+                if per_ic:
+                    factor_backtest_results.update(per_ic)
+
             factor_entry = {
                 "factor_id": factor_id,
                 "factor_name": factor_name,
@@ -135,7 +152,7 @@ class FactorLibraryManager:
                     "planning_direction": planning_direction or "",
                     "created_at": datetime.now().isoformat(),
                 },
-                "backtest_results": backtest_results,
+                "backtest_results": factor_backtest_results,
                 "feedback": feedback_dict,
             }
 
@@ -188,6 +205,16 @@ class FactorLibraryManager:
             }
         """
         cache_dir = Path(cache_dir or DEFAULT_FACTOR_CACHE_DIR)
+        project_root = Path(library_path).resolve().parent.parent.parent
+
+        def resolve_path(path: str) -> Path:
+            candidate = Path(path)
+            if candidate.is_absolute():
+                return candidate
+            root_candidate = project_root / candidate
+            if root_candidate.exists():
+                return root_candidate
+            return candidate
 
         with open(library_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -206,7 +233,7 @@ class FactorLibraryManager:
 
             status = "need_compute"
             # Check h5 cache
-            if h5_path and Path(h5_path).exists():
+            if h5_path and resolve_path(h5_path).exists():
                 status = "h5_cached"
                 h5_cached += 1
             # Check MD5 cache
@@ -241,6 +268,16 @@ class FactorLibraryManager:
               "already_cached": int, "no_source": int }
         """
         cache_dir_path = Path(cache_dir or DEFAULT_FACTOR_CACHE_DIR)
+        project_root = Path(library_path).resolve().parent.parent.parent
+
+        def resolve_path(path: str) -> Path:
+            candidate = Path(path)
+            if candidate.is_absolute():
+                return candidate
+            root_candidate = project_root / candidate
+            if root_candidate.exists():
+                return root_candidate
+            return candidate
 
         with open(library_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -270,13 +307,14 @@ class FactorLibraryManager:
                 skipped += 1
                 continue
 
-            if not Path(h5_path).exists():
+            resolved_h5_path = resolve_path(h5_path)
+            if not resolved_h5_path.exists():
                 failed += 1
                 continue
 
             try:
                 cache_dir_path.mkdir(parents=True, exist_ok=True)
-                result = pd.read_hdf(str(h5_path))
+                result = pd.read_hdf(str(resolved_h5_path))
                 result.to_pickle(pkl_file)
                 synced += 1
             except Exception:
@@ -290,6 +328,172 @@ class FactorLibraryManager:
             "already_cached": already_cached,
             "no_source": no_source,
         }
+
+    @staticmethod
+    def _load_return_series() -> Optional[pd.Series]:
+        """Load the `$return` column from the configured factor data folder.
+
+        Loaded once per experiment and passed to ``_compute_per_factor_ic_metrics``
+        to avoid repeated HDF5 reads.  Returns ``None`` if unavailable.
+        """
+        try:
+            from quantaalpha.factors.coder.config import FACTOR_COSTEER_SETTINGS
+            data_dir = Path(FACTOR_COSTEER_SETTINGS.data_folder)
+            if not data_dir.is_absolute():
+                project_root = Path(__file__).resolve().parent.parent.parent
+                data_dir = project_root / data_dir
+            for fname in ("daily_pv.h5", "daily_pv_all.h5"):
+                candidate = data_dir / fname
+                if candidate.exists():
+                    pv_df = pd.read_hdf(str(candidate))
+                    if isinstance(pv_df, pd.DataFrame) and "$return" in pv_df.columns:
+                        return pv_df["$return"]
+        except Exception as e:
+            logger.debug(f"_load_return_series: {e}")
+        return None
+
+    @staticmethod
+    def _compute_per_factor_ic_metrics(
+        ws, factor_name: str, return_series: Optional[pd.Series] = None
+    ) -> dict:
+        """Compute IC / RankIC / ICIR / RankICIR for a single factor.
+
+        Factor values are obtained by calling ``ws.execute("All")``, which
+        returns immediately from the pickle cache when available (the typical
+        case: the runner already executed the factor before calling this method).
+        Falls back to reading ``result.h5`` from the workspace directory when
+        the cache is disabled.
+
+        ``return_series`` should be pre-loaded once outside the per-factor loop
+        via ``_load_return_series()``.  If ``None`` is passed, the method tries
+        to load it from workspace hard-links / the data folder as a last resort.
+
+        Returns an empty dict on any failure so callers always get a valid dict.
+        """
+        try:
+            # ── 1. Get factor values ──────────────────────────────────────────
+            factor_df = None
+
+            # Primary: call execute("All") — uses pickle cache when available,
+            # which is the common case after runner.py already ran the factors.
+            try:
+                result = ws.execute("All")
+                if isinstance(result, tuple) and len(result) >= 2:
+                    factor_df = result[1]
+            except Exception:
+                pass
+
+            # Fallback: read result.h5 directly (no-cache / first-run path)
+            if factor_df is None:
+                ws_path = getattr(ws, "workspace_path", None)
+                if ws_path is not None:
+                    h5_file = Path(ws_path) / "result.h5"
+                    if h5_file.exists():
+                        try:
+                            factor_df = pd.read_hdf(str(h5_file))
+                        except Exception:
+                            pass
+
+            if factor_df is None:
+                return {}
+
+            # Normalise to a Series (first column if DataFrame)
+            if isinstance(factor_df, pd.DataFrame):
+                factor_series = factor_df.iloc[:, 0]
+            elif isinstance(factor_df, pd.Series):
+                factor_series = factor_df
+            else:
+                return {}
+
+            # ── 2. Get return data ────────────────────────────────────────────
+            if return_series is None:
+                # Try hard-linked / symlinked files inside the workspace
+                ws_path = getattr(ws, "workspace_path", None)
+                if ws_path is not None:
+                    for fname in ("daily_pv.h5", "daily_pv_all.h5", "daily_pv_debug.h5"):
+                        pv_file = Path(ws_path) / fname
+                        if pv_file.exists():
+                            try:
+                                pv_df = pd.read_hdf(str(pv_file))
+                                if isinstance(pv_df, pd.DataFrame) and "$return" in pv_df.columns:
+                                    return_series = pv_df["$return"]
+                                    break
+                            except Exception:
+                                continue
+                # Ultimate fallback: load from data folder
+                if return_series is None:
+                    return_series = FactorLibraryManager._load_return_series()
+
+            if return_series is None:
+                return {}
+
+            # ── 3. Normalise MultiIndex to (datetime, instrument) ─────────────
+            def _ensure_datetime_first(s: pd.Series) -> pd.Series:
+                if s.index.nlevels == 2:
+                    names = list(s.index.names)
+                    if names[0] != "datetime" and "datetime" in names:
+                        return s.swaplevel().sort_index()
+                return s
+
+            factor_series = _ensure_datetime_first(factor_series)
+            return_series = _ensure_datetime_first(return_series)
+
+            # ── 4. Cross-sectional IC per date (factor[t] vs return[t+1]) ─────
+            dates = sorted(factor_series.index.get_level_values("datetime").unique())
+            ic_list: list = []
+            rank_ic_list: list = []
+
+            for i, dt in enumerate(dates):
+                if i + 1 >= len(dates):
+                    continue
+                next_dt = dates[i + 1]
+                try:
+                    f_cross = factor_series.xs(dt, level="datetime").dropna()
+                    ret_dates = return_series.index.get_level_values("datetime")
+                    if next_dt not in ret_dates:
+                        continue
+                    r_cross = return_series.xs(next_dt, level="datetime").dropna()
+
+                    common = f_cross.index.intersection(r_cross.index)
+                    if len(common) < 5:
+                        continue
+
+                    f_aligned = f_cross.loc[common]
+                    r_aligned = r_cross.loc[common]
+                    mask = np.isfinite(f_aligned) & np.isfinite(r_aligned)
+                    f_aligned = f_aligned[mask]
+                    r_aligned = r_aligned[mask]
+                    if len(f_aligned) < 5:
+                        continue
+
+                    ic_val = float(f_aligned.corr(r_aligned, method="pearson"))
+                    ric_val = float(f_aligned.corr(r_aligned, method="spearman"))
+                    if np.isfinite(ic_val):
+                        ic_list.append(ic_val)
+                    if np.isfinite(ric_val):
+                        rank_ic_list.append(ric_val)
+                except Exception:
+                    continue
+
+            if not ic_list:
+                return {}
+
+            ic_arr = np.array(ic_list)
+            ric_arr = np.array(rank_ic_list) if rank_ic_list else ic_arr
+            ic_mean = float(np.mean(ic_arr))
+            ic_std = float(np.std(ic_arr))
+            ric_mean = float(np.mean(ric_arr))
+            ric_std = float(np.std(ric_arr))
+
+            return {
+                "IC": round(ic_mean, 6),
+                "ICIR": round(ic_mean / (ic_std + 1e-10), 4),
+                "Rank IC": round(ric_mean, 6),
+                "Rank ICIR": round(ric_mean / (ric_std + 1e-10), 4),
+            }
+        except Exception as e:
+            logger.warning(f"Per-factor IC computation failed for {factor_name}: {e}")
+            return {}
 
     @staticmethod
     def _extract_backtest_results(experiment) -> dict:

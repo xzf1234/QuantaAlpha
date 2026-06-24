@@ -1,6 +1,12 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+// Strip ANSI escape codes (e.g. \x1b[95m, [0m, [96m ...)
+export function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/(?:\x1b|\u001b|\x1B)\[[\d;]*[a-zA-Z]|\[\d+(?:;\d+)*m/g, '');
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }

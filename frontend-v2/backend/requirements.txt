@@ -5,3 +5,19 @@ python-multipart>=0.0.6
 websockets>=12.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
+
+# Backtest runtime used by quantaalpha.backtest.run_backtest
+numpy>=1.24,<2
+pandas>=1.5,<3
+pyqlib
+lightgbm
+scikit-learn
+joblib
+pyparsing
+pyarrow
+tables
+filelock
+fuzzywuzzy
+pydantic-settings
+loguru
+fire

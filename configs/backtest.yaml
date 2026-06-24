@@ -46,6 +46,20 @@ data:
   market: "csi300"
   start_time: "2016-01-01"
   end_time: "2025-12-26"
+  # Base Qlib fields used by custom factor expression evaluation.
+  fields: ["$open", "$high", "$low", "$close", "$volume", "$vwap"]
+  # Extra fields present in the bundled Qlib data. Missing fields are ignored
+  # by falling back to the base fields.
+  extra_fields: ["$amount", "$change", "$factor", "$adjclose"]
+
+external_data:
+  # Put a-stock-data exports here as CSV/Parquet/Feather. Files should contain
+  # date + instrument columns and numeric fields such as pe_ttm, pb, roe,
+  # market_cap, turnover_rate, main_net_inflow, margin_balance, unlock_ratio.
+  enabled: true
+  data_dir: "data/external/astock_structured"
+  ffill_limit: null
+  field_map: {}
 
 ######################################################################
 # 3. Dataset and preprocessing (dataset)
@@ -117,8 +131,8 @@ backtest:
     module_path: "qlib.contrib.strategy"
     kwargs:
       signal: "<PRED>"
-      topk: 50
-      n_drop: 5
+      topk: 100
+      n_drop: 1
 
   backtest:
     start_time: "2022-01-01"

@@ -50,6 +50,12 @@ Examples:
     parser.add_argument('-j', '--factor-json', type=str, action='append', default=None,
                         help='Custom factor JSON path (can repeat)')
     parser.add_argument('-e', '--experiment', type=str, default=None, help='Experiment name (overrides config)')
+    parser.add_argument('--output-name', type=str, default=None,
+                        help='Output file prefix (defaults to factor JSON stem)')
+    parser.add_argument('--topk', type=int, default=None,
+                        help='Override TopkDropoutStrategy topk')
+    parser.add_argument('--n-drop', type=int, default=None,
+                        help='Override TopkDropoutStrategy n_drop')
     parser.add_argument('-v', '--verbose', action='store_true', help='Verbose logging')
     parser.add_argument('--dry-run', action='store_true', help='Load factors only, no backtest')
     parser.add_argument('--skip-uncached', action='store_true',
@@ -72,6 +78,10 @@ Examples:
         from quantaalpha.backtest.runner import BacktestRunner
         
         runner = BacktestRunner(str(config_path))
+        if args.topk is not None:
+            runner.config['backtest']['strategy']['kwargs']['topk'] = args.topk
+        if args.n_drop is not None:
+            runner.config['backtest']['strategy']['kwargs']['n_drop'] = args.n_drop
         
         if args.dry_run:
             print("\nDry Run - load factors only\n")
@@ -100,6 +110,7 @@ Examples:
                 factor_source=args.factor_source,
                 factor_json=args.factor_json,
                 experiment_name=args.experiment,
+                output_name=args.output_name,
                 skip_uncached=args.skip_uncached,
             )
             

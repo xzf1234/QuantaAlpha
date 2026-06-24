@@ -138,9 +138,11 @@ class FactorFBWorkspace(FBWorkspace):
                 )
             )
 
-            # Use absolute path
+            # Use absolute path (resolve relative to project root)
             if not source_data_path.is_absolute():
-                source_data_path = self.workspace_path.parent.parent.parent / source_data_path
+                # Project root: go up from quantaalpha/factors/coder/factor.py (4 levels)
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                source_data_path = project_root / source_data_path
             else:
                 source_data_path = Path(source_data_path).absolute()
 
@@ -159,24 +161,26 @@ class FactorFBWorkspace(FBWorkspace):
             execution_error = None
 
             if self.target_task.version == 1:
-                execution_code_path = code_path
+                execution_code_filename = "factor.py"
             elif self.target_task.version == 2:
-                execution_code_path = self.workspace_path / f"{uuid.uuid4()}.py"
-                execution_code_path.write_text((Path(__file__).parent / "factor_execution_template.txt").read_text())
+                execution_code_filename = f"{uuid.uuid4()}.py"
+                (self.workspace_path / execution_code_filename).write_text(
+                    (Path(__file__).parent / "factor_execution_template.txt").read_text()
+                )
 
             try:
                 # Set PYTHONPATH to include the project root so quantaalpha can be imported
                 import os
                 env = os.environ.copy()
-                project_root = Path(__file__).parent.parent.parent.parent.parent
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
                 pythonpath = str(project_root)
                 if 'PYTHONPATH' in env:
                     env['PYTHONPATH'] = pythonpath + ':' + env['PYTHONPATH']
                 else:
                     env['PYTHONPATH'] = pythonpath
-                
+
                 subprocess.check_output(
-                    f"{FACTOR_COSTEER_SETTINGS.python_bin} {execution_code_path}",
+                    f"{FACTOR_COSTEER_SETTINGS.python_bin} {execution_code_filename}",
                     shell=True,
                     cwd=self.workspace_path,
                     stderr=subprocess.STDOUT,
@@ -189,7 +193,7 @@ class FactorFBWorkspace(FBWorkspace):
 
                 execution_feedback = (
                     e.output.decode()
-                    .replace(str(execution_code_path.parent.absolute()), r"/path/to")
+                    .replace(str(self.workspace_path.absolute()), r"/path/to")
                     .replace(str(site.getsitepackages()[0]), r"/path/to/site-packages")
                 )
                 if len(execution_feedback) > 2000:

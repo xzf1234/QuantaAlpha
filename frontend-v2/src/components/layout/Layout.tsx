@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Database, BarChart3, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { Sparkles, Database, BarChart3, Settings as SettingsIcon } from 'lucide-react';
 import { useTaskContext } from '@/context/TaskContext';
 
 export type PageId = 'home' | 'library' | 'backtest' | 'settings' | 'mining_dashboard';
@@ -17,7 +17,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onNavigate,
   showNavigation = true,
 }) => {
-  const { miningTask, resetMiningTask } = useTaskContext();
+  const { miningTask } = useTaskContext();
 
   // Helper to determine where 'Factor Mining' nav item should go
   const handleNavClick = (itemId: PageId) => {

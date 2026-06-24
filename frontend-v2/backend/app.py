@@ -695,7 +695,8 @@ async def get_cache_status(
 
     # Import from core library
     from quantaalpha.factors.library import FactorLibraryManager
-    result = FactorLibraryManager.check_cache_status(lib_path)
+    cache_dir = str(PROJECT_ROOT / "data" / "results" / "factor_cache")
+    result = FactorLibraryManager.check_cache_status(lib_path, cache_dir=cache_dir)
     return ApiResponse(success=True, data=result)
 
 
@@ -720,7 +721,8 @@ async def warm_cache(
         raise HTTPException(status_code=404, detail=f"Factor library not found: {library}")
 
     from quantaalpha.factors.library import FactorLibraryManager
-    result = FactorLibraryManager.warm_cache_from_json(lib_path)
+    cache_dir = str(PROJECT_ROOT / "data" / "results" / "factor_cache")
+    result = FactorLibraryManager.warm_cache_from_json(lib_path, cache_dir=cache_dir)
     # Build a clear message
     parts = []
     if result['synced']:
@@ -840,6 +842,10 @@ async def _run_backtest(task_id: str, req: BacktestStartRequest, config_path: st
         env = os.environ.copy()
         dotenv = _load_dotenv_dict()
         env.update(dotenv)
+        env.setdefault("PYTHONUTF8", "1")
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+        env["FACTOR_CACHE_DIR"] = str(PROJECT_ROOT / "data" / "results" / "factor_cache")
 
         # --- Resolve factor JSON path ---
         # Frontend sends just the filename (e.g. "all_factors_library_test3hjback.json")
